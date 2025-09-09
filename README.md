@@ -2,13 +2,12 @@
 
 Modified to work with Ebyte E77 and Rak3172
 
-Radiohead library has only support for Wio E5 - I changed  the pins in RH_STM32WLx.cpp
+Radiohead library has only support for Wio E5 - I changed  that
 
-Rak3172: PB8, PC13  EbyteE77: PA6, PA7 //WioE5: PA4, PA5
+Rak3172: works
+EbyteE77: has no variant in stm32duino compile as WioE5
 
-
-
-
+check the serial pins in the variant of the board - Serial for debugging HardwareSerial for Gps
 
 
 
