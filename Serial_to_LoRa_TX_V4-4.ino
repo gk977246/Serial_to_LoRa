@@ -58,41 +58,43 @@
  * SOFTWARE.
  */
 
-// #define USE_HEARTBEAT
+#define USE_HEARTBEAT
 
 #include <Arduino.h>        // required before wiring_private.h
-#include "wiring_private.h" // pinPeripheral() function
+//#include "wiring_private.h" // pinPeripheral() function
 #include <SPI.h>
-#include <RH_RF95.h>
-#include <Adafruit_SleepyDog.h>
-
-#define RTCM_START 0xd3
-#define BUFLEN 2000    //max size of data burst from GPS we can handle
+#include <RH_STM32WLx.h>
+//#include <Adafruit_SleepyDog.h>
+#include <IWatchdog.h>
+#define RTCM_START 0xD3
+#define BUFLEN 1000    //2000 max size of data burst from GPS we can handle
 #define SER_TIMEOUT 50 //Timeout in millisecs for reads into buffer from serial
                        // - needs to be longer than byte time at our baud rate
                        // and any other delay between packets from GPS
 
 // for feather m0
-#define RFM95_CS 8
-#define RFM95_RST 4
-#define RFM95_INT 3
+//#define RFM95_CS PA4
+//#define RFM95_RST PA_9
+//#define RFM95_INT PA_10
 
 // Change to 434.0 or other frequency, must match RX's freq!
-#define RF95_FREQ 915.0
-
+//#define RF95_FREQ 868.0
+RH_STM32WLx driver;
 // Singleton instance of the radio driver
-RH_RF95 rf95(RFM95_CS, RFM95_INT);
+//RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // We will use Serial2 - Rx on pin 11, Tx on pin 10
-Uart Serial2 (&sercom1, 11, 10, SERCOM_RX_PAD_0, UART_TX_PAD_2);
-void SERCOM1_Handler()
-{
-  Serial2.IrqHandler();
-}
+//Uart Serial2 (&sercom1, 11, 10, SERCOM_RX_PAD_0, UART_TX_PAD_2);
+//void SERCOM1_Handler()
+//{
+//  Serial2.IrqHandler();
+//}
 
+//                      RX    TX
+HardwareSerial GPScomm(PB7, PB6);//(PA3, PA2);
 // The LED is turned on when 1st byte is received from the serial port. It is
 //  turned off after the last byte is transmitted over LoRa.
-#define LED 13
+#define LED PA10
 
 int sendSize; //Will hold result of a call to RF95.maxMessageLength(). This
               // value will be the length of packet we send.
@@ -103,30 +105,30 @@ unsigned long lastHeartBeatTime; //holds last millis() value when heartbeat was 
 void setup()
 {
   pinMode(LED, OUTPUT);
-  pinMode(RFM95_RST, OUTPUT);
-  digitalWrite(RFM95_RST, HIGH);
+  //pinMode(RFM95_RST, OUTPUT);
+  //digitalWrite(RFM95_RST, HIGH);
 
   Serial.begin(115200);
 //  while (!Serial) { //Waits for the Serial Monitor
 //    delay(1);
 //  }
 
-  Serial2.begin(115200);
+  GPScomm.begin(115200);
 
   // Assign pins 10 & 11 SERCOM functionality
-  pinPeripheral(10, PIO_SERCOM);
-  pinPeripheral(11, PIO_SERCOM);
-  delay(100);
+  //pinPeripheral(10, PIO_SERCOM);
+  //pinPeripheral(11, PIO_SERCOM);
+  //delay(100);
 
-  Serial.println("Feather LoRa TX");
+  Serial.println("LoRa TX");
 
   // manual reset
-  digitalWrite(RFM95_RST, LOW);
-  delay(10);
-  digitalWrite(RFM95_RST, HIGH);
-  delay(10);
+  //digitalWrite(RFM95_RST, LOW);
+  //delay(10);
+  //digitalWrite(RFM95_RST, HIGH);
+  //delay(10);
 
-  while (!rf95.init())
+  while (!driver.init())
   {
     Serial.println("LoRa radio init failed");
     while (1);
@@ -134,12 +136,12 @@ void setup()
   Serial.println("LoRa radio init OK!");
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
-  if (!rf95.setFrequency(RF95_FREQ))
+  if (!driver.setFrequency(868.0))
   {
     Serial.println("setFrequency failed");
     while (1);
   }
-  Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+  Serial.print("Set Freq to: 868.0 ");
 
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5,
   //  Sf = 128chips/symbol, CRC on
@@ -147,17 +149,18 @@ void setup()
   // The default transmitter power is 13dBm, using PA_BOOST.
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST
   //  transmitter pin, then you can set transmitter powers from 5 to 23 dBm:
-  rf95.setTxPower(23, false);
-  rf95.setSignalBandwidth(62500L);
+  //rf95.setTxPower(23, false);
+  //rf95.setSignalBandwidth(62500L);
 //  rf95.setCodingRate4(6);
 
-  Serial2.setTimeout(SER_TIMEOUT);
+  //GPScomm.setTimeout(SER_TIMEOUT);
 
-  sendSize = rf95.maxMessageLength();
+  sendSize = driver.maxMessageLength();
 
   lastHeartBeatTime = millis(); //initialize time for activity check
 
-  int countdownMS = Watchdog.enable(3000); //Set watchdog timer to 3.0 seconds.
+  //int countdownMS = Watchdog.enable(3000); //Set watchdog timer to 3.0 seconds.
+  IWatchdog.begin(3000000);
 }
 
 void loop()
@@ -167,8 +170,8 @@ void loop()
   int bytesRead;
   int bytesLeft;
 
-  Watchdog.reset();
-
+  //Watchdog.reset();
+  IWatchdog.reload();
 
 #ifdef USE_HEARTBEAT
   //Timer to determine if time to send a heartbeat
@@ -183,12 +186,12 @@ void loop()
   SendHeartBeat = false;
 #endif
 
-  if (Serial2.available() || (SendHeartBeat==true))
+  if (GPScomm.available() || (SendHeartBeat==true))
   {
     digitalWrite(LED, HIGH);
 
     // If timeout is set properly, this should read an entire burst from the GPS.
-    bytesRead = Serial2.readBytes((char *) buf, BUFLEN);
+    bytesRead = GPScomm.readBytes((char *) buf, BUFLEN);
 
     Serial.println(bytesRead);  //For debugging purposes
 
@@ -197,39 +200,38 @@ void loop()
     //  It is moved through buf until all bytes are transmitted.
     bufptr = buf;
 
-#ifdef USE_HEARTBEAT
+   #ifdef USE_HEARTBEAT
     // If nothing received, we here only to send a heartbeat
     if(bytesRead == 0)
     {
-      buf[0] = 'H'; //Put our heartbeat character in the buffer
-      bytesRead = 1; //Indicate there is a character in the buffer
+      //buf[0] = 'H'; //Put our heartbeat character in the buffer
+      //bytesRead = 1; //Indicate there is a character in the buffer
     }
-#endif
+   #endif
 
     bytesLeft = bytesRead;
     while(bytesLeft > 0)
     {
       if( bytesLeft < sendSize)
       {
-        rf95.waitPacketSent();
-        rf95.send(bufptr, bytesLeft);
+        driver.waitPacketSent();
+        driver.send(bufptr, bytesLeft);
         bytesLeft = 0;
       }
       else
       {
-        rf95.waitPacketSent();
-        rf95.send(bufptr, sendSize);
+        driver.waitPacketSent();
+        driver.send(bufptr, sendSize);
         bufptr += sendSize;
         bytesLeft -= sendSize;
       }
     }
 
-#ifdef USE_HEARTBEAT
+    #ifdef USE_HEARTBEAT
     //Reset the heartbeat flag and timer
     SendHeartBeat = false;
     lastHeartBeatTime = millis(); //reset time
-#endif
-
+     #endif  
     digitalWrite(LED, LOW);
-  }
+  }   
 }
