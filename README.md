@@ -1,4 +1,18 @@
 # Serial_to_LoRa
+
+Modified to work with Ebyte E77 and Rak3172
+
+Radiohead library has only support for Wio E5 - I changed  the pins in RH_STM32WLx.cpp
+
+Rak3172: PB8, PC13  EbyteE77: PA6, PA7 //WioE5: PA4, PA5
+
+
+
+
+
+
+
+
 Transmit and receive programs for Adafruit Feather M0 LoRa module to transmit one way data over LoRa. I have used these routines previously with a U-blox C94-M8P evaluation kit to send RTK correction data (RTCM3) from base GPS to rover GPS for an autonomous lawn mower based on Ardupilot running on a Pixhawk. I have upgraded to U-blox C099-F9P eval boards and Ardusimple SimpleRTK2B boards (Either will work.)
 
 I discovered, on July 1, 2020, that I could run the LoRa modules at a bandwidth of 62.5kbps instead of 125kbps. I made that change which theoretically will give more range. In testing, I did not notice a difference.

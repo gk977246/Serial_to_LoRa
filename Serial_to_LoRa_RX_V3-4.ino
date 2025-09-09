@@ -1,4 +1,3 @@
-// LoRa Receive Program Version 3.4
 // Serial_to_LoRa_RX_V3-4.ino
 // Copyright Kenny Trussell
 // http://kenny.trussell.biz
@@ -70,17 +69,17 @@
  */
 
 #include <Arduino.h>   // required before wiring_private.h
-#include "wiring_private.h" // pinPeripheral() function
+//#include "wiring_private.h" // pinPeripheral() function
 #include <SPI.h>
-#include <RH_RF95.h>
+#include <RH_STM32WLx.h>
 
-#define ACTIVITY_PIN 12 //held HIGH if data being received, otherwise LOW
+//#define ACTIVITY_PIN PA15 //held HIGH if data being received, otherwise LOW
                         // This could just be a heartbeat from the
                         // transmitter, not necessarily data
-#define DATA_OK_PIN 6 //held HIGH if large data packets are being received
+#define DATA_OK_PIN PA10 //held HIGH if large data packets are being received
 
 // Max size of data burst we can handle (5 full RF buffers)-arbitrarily large
-#define BUFLEN (5*RH_RF95_MAX_MESSAGE_LEN)
+#define BUFLEN (4*RH_SX126x_MAX_MESSAGE_LEN)
 
 // Maximum milliseconds to wait for next LoRa packet
 //  Up to 300, program sends each packet to GPS. 350 causes it to get multiple
@@ -89,74 +88,76 @@
 #define RFWAITTIME 1 //1 will cause packet to be sent to GPS immediately
 
 // For feather m0
-#define RFM95_CS 8
-#define RFM95_RST 4
-#define RFM95_INT 3
+//#define RFM95_CS PA4
+//#define RFM95_RST PA_9
+//#define RFM95_INT PA_10
 
 // Change to 434.0 or other frequency, must match RX's freq!
-#define RF95_FREQ 915.0
-
+//#define RF95_FREQ 868.0
+RH_STM32WLx driver;
 // Singleton instance of the radio driver
-RH_RF95 rf95(RFM95_CS, RFM95_INT);
+//RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // We will use Serial2 - Rx on pin 11, Tx on pin 10
-Uart Serial2 (&sercom1, 11, 10, SERCOM_RX_PAD_0, UART_TX_PAD_2);
-void SERCOM1_Handler()
-{
-  Serial2.IrqHandler();
-}
+//Uart Serial2 (&sercom1, 11, 10, SERCOM_RX_PAD_0, UART_TX_PAD_2);
 
+//void SERCOM1_Handler()
+//{
+//  Serial2.IrqHandler();
+//}
+//                      RX    TX
+HardwareSerial GPScomm(PA3, PA2);//(PB7, PB6);
 // LED is turned on at 1st LoRa reception and off when nothing else received.
 //  It gives an indication of how long the incoming data stream is.
-#define LED 13
+#define LED PA9
 
 unsigned long lastActCheckTime; //holds last millis() value when activity was checked
 
 void setup()
 {
   pinMode(LED, OUTPUT);
-  pinMode(RFM95_RST, OUTPUT);
-  pinMode(ACTIVITY_PIN, OUTPUT);
+  //pinMode(RFM95_RST, OUTPUT);
+  //pinMode(ACTIVITY_PIN, OUTPUT);
   pinMode(DATA_OK_PIN, OUTPUT);
 
-  digitalWrite(RFM95_RST, HIGH);
-  digitalWrite(ACTIVITY_PIN, LOW); //Initialize to no activity
+  //digitalWrite(RFM95_RST, HIGH);
+  //digitalWrite(ACTIVITY_PIN, LOW); //Initialize to no activity
   digitalWrite(DATA_OK_PIN, LOW);  //Initialize to no packet activity
 
   Serial.begin(115200);
 //  while (!Serial) { //Waits for the Serial Monitor
-//    delay(1);
+    //delay(1000);
 //  }
 
-  Serial2.begin(460800);
+  GPScomm.begin(115200);
 
   // Assign pins 10 & 11 SERCOM functionality
-  pinPeripheral(10, PIO_SERCOM);
-  pinPeripheral(11, PIO_SERCOM);
-  delay(100);
+  //pinPeripheral(10, PIO_SERCOM);
+  //pinPeripheral(11, PIO_SERCOM);
+  //delay(100);
 
-  Serial.println("Feather LoRa RX");
+  Serial.println("LoRa RX");
 
   // manual reset
-  digitalWrite(RFM95_RST, LOW);
-  delay(10);
-  digitalWrite(RFM95_RST, HIGH);
-  delay(10);
+  //digitalWrite(RFM95_RST, LOW);
+  //delay(10);
+  //digitalWrite(RFM95_RST, HIGH);
+  //delay(10);
 
-  while (!rf95.init()) {
+  if (!driver.init()) 
     Serial.println("LoRa radio init failed");
-    while (1);
-  }
-  Serial.println("LoRa radio init OK!");
+  //}
+  //else
+  //Serial.println("LoRa radio init OK!");
 
-  for(int ii=0; ii<100; ii++) { Serial.println("TEST"); }
+  for(int ii=0; ii<100; ii++) { Serial.println("Failed"); }
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
-  if (!rf95.setFrequency(RF95_FREQ)) {
+  if (!driver.setFrequency(868.0)) {
     Serial.println("setFrequency failed");
     while (1);
   }
-  Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+  Serial.println("Set Freq to: 868.0");
 
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5,
   //  Sf = 128chips/symbol, CRC on
@@ -164,8 +165,8 @@ void setup()
   // The default transmitter power is 13dBm, using PA_BOOST.
   //  If you are using RFM95/96/97/98 modules which uses the PA_BOOST
   //  transmitter pin, then you can set transmitter powers from 5 to 23 dBm:
-  rf95.setTxPower(23, false);
-  rf95.setSignalBandwidth(62500L);
+  //rf95.setTxPower(23, false);
+  //rf95.setSignalBandwidth(62500L);
 
   lastActCheckTime = millis(); //initialize time for activity check
 }
@@ -184,22 +185,22 @@ void loop()
   bufptr = buf;
   buflen = 0;
 
-  if (rf95.available())
+  if (driver.available())
   {
     RX_Activity = true; //Indicate that we have activity
-    digitalWrite(LED, HIGH);
-    rfbuflen = RH_RF95_MAX_MESSAGE_LEN;
-    if(rf95.recv(bufptr, &rfbuflen))
+    //digitalWrite(LED, HIGH);
+    rfbuflen = RH_SX126x_MAX_MESSAGE_LEN;
+    if(driver.recv(bufptr, &rfbuflen))
     {
       bufptr += rfbuflen;
       lastTime = millis();
 
-      while(((millis()-lastTime) < RFWAITTIME) && ((bufptr - buf) < (BUFLEN - RH_RF95_MAX_MESSAGE_LEN))) //Time out or buffer can't hold anymore
+      while(((millis()-lastTime) < RFWAITTIME) && ((bufptr - buf) < (BUFLEN - RH_SX126x_MAX_MESSAGE_LEN))) //Time out or buffer can't hold anymore
       {
-        if (rf95.available())
+        if (driver.available())
         {
-          rfbuflen = RH_RF95_MAX_MESSAGE_LEN;
-          if(rf95.recv(bufptr, &rfbuflen))
+          rfbuflen = RH_SX126x_MAX_MESSAGE_LEN;
+          if(driver.recv(bufptr, &rfbuflen))
           {
             bufptr += rfbuflen;
             lastTime = millis();
@@ -220,10 +221,10 @@ void loop()
 
     if (buflen > 100) Data_OK = true; //Indicate we are likely getting real data
 
-    Serial.print(rf95.lastRssi(), DEC);
+    Serial.print(driver.lastRssi(), DEC);
     Serial.print(" ");
     Serial.println(buflen);   // For debugging
-    Serial2.write(buf, buflen); //Send data to the GPS
+    GPScomm.write(buf, buflen); //Send data to the GPS
     digitalWrite(LED, LOW);
   }
 
@@ -232,11 +233,13 @@ void loop()
   {
     if(RX_Activity)
     {
-      digitalWrite(ACTIVITY_PIN, HIGH);  //Indicate that we received data
+      digitalWrite(LED, HIGH);
+      //digitalWrite(ACTIVITY_PIN, HIGH);  //Indicate that we received data
     }
     else
     {
-      digitalWrite(ACTIVITY_PIN, LOW); //Indicate no data received
+      digitalWrite(LED, LOW); //Indicate no data received
+      //digitalWrite(ACTIVITY_PIN, LOW); //Indicate no data received
     }
     RX_Activity = false;  //set flag to false - receive activity (if any) will set it to true
 
